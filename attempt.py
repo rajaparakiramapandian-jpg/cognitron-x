@@ -1,6 +1,8 @@
+import os
+os.environ["FOR_DISABLE_CONSOLE_CTRL_HANDLER"] = "T"
 import streamlit as st
 import pandas as pd
-import google.generativeai as genai
+from openai import OpenAI
 import matplotlib.pyplot as plt
 import plotly.express as px
 import io
@@ -8,6 +10,10 @@ import json
 import hashlib
 import os
 import threading
+import threading
+from database import db
+import login_page as lp
+import utils
 
 # --------------------------------------------------
 # PAGE CONFIG & STYLING
@@ -18,192 +24,63 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom CSS for Premium UI
-st.markdown("""
-<style>
-    /* Glassmorphism Cards */
-    .stCard, div[data-testid="stForm"] {
-        background: rgba(255, 255, 255, 0.05);
-        backdrop-filter: blur(10px);
-        border-radius: 15px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        padding: 20px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
-    
-    /* Buttons */
-    .stButton>button {
-        background: linear-gradient(90deg, #4b6cb7 0%, #182848 100%);
-        color: white;
-        border: none;
-        border-radius: 8px;
-        padding: 10px 24px;
-        font-weight: 600;
-        transition: all 0.3s ease;
-    }
-    .stButton>button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(75, 108, 183, 0.4);
-    }
-    
-    /* Headers and Labels */
-    h1, h2, h3, label, .stMarkdown, p {
-        font-family: 'Inter', sans-serif;
-    }
-    
-    /* Antigravity Style Chat Bubbles */
-    [data-testid="stChatMessage"] {
-        background-color: rgba(30, 30, 47, 0.7) !important; /* Slightly darker for better contrast */
-        backdrop-filter: blur(12px);
-        border-radius: 12px !important;
-        padding: 15px !important;
-        margin-bottom: 12px !important;
-        border: 1px solid rgba(75, 108, 183, 0.4) !important;
-    }
-    
-    /* Force high-visibility white text for ALL chat content */
-    [data-testid="stChatMessage"] p, 
-    [data-testid="stChatMessage"] span, 
-    [data-testid="stChatMessage"] div, 
-    [data-testid="stChatMessage"] li,
-    [data-testid="stChatMessage"] code {
-        color: #ffffff !important;
-        font-weight: 400 !important;
-        text-shadow: 0px 1px 2px rgba(0,0,0,0.5); /* Subtle shadow for "pop" */
-    }
-    
-    [data-testid="stChatMessageAvatar"] {
-        background-color: #4b6cb7 !important;
-        border-radius: 50% !important;
-    }
 
-    /* Input Fields Visibility (Global) */
-    .stTextInput input, .stSelectbox div[data-baseweb="select"], .stNumberInput input {
-        color: #ffffff !important;           /* White Text */
-        background-color: #2d2d44 !important; /* Dark Background */
-        border: 1px solid #4b6cb7 !important; /* Blue Border */
-    }
-    
-    /* Specific Chat Input Styling */
-    div[data-testid="stChatInput"] {
-        background-color: transparent !important;
-    }
-    
-    div[data-testid="stChatInput"] textarea {
-        background-color: #1e1e2f !important;
-        color: #ffffff !important;
-        -webkit-text-fill-color: #ffffff !important;
-        border: 1px solid #4b6cb7 !important;
-    }
-    
-    /* Placeholder */
-    ::placeholder {
-        color: rgba(255, 255, 255, 0.4) !important;
-    }
-
-    /* --- ANIMATIONS --- */
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-
-    @keyframes glowPulse {
-        0% { text-shadow: 0 0 5px rgba(0, 255, 127, 0.2); color: #00ff7f; }
-        50% { text-shadow: 0 0 20px rgba(0, 255, 127, 0.6); color: #55ffb2; }
-        100% { text-shadow: 0 0 5px rgba(0, 255, 127, 0.2); color: #00ff7f; }
-    }
-
-    /* Apply Fade In to main components */
-    .stCard, div[data-testid="stMetric"], [data-testid="stChatMessage"], .stTabs, div[data-testid="stDataFrame"] {
-        animation: fadeIn 0.8s ease-out forwards;
-    }
-
-    /* FIX: Remove unwanted black space/margins around data previews */
-    .stDataFrame, div[data-testid="stFileUploader"] {
-        margin-bottom: 0px !important;
-        margin-top: 5px !important;
-    }
-    
-    .stAlert {
-        margin-top: 10px !important;
-    }
-
-    /* FIX: Prevent glitches in Fullscreen/Maximize mode */
-    [data-testid="stFullScreenFrame"] {
-        background-color: #0e1117 !important;
-        background-image: none !important;
-    }
-    
-    [data-testid="stFullScreenFrame"] [data-testid="stCard"] {
-        background: #1e1e2f !important;
-        backdrop-filter: none !important;
-    }
-
-    button[title="Minimize"] {
-        background-color: rgba(255,255,255,0.1) !important;
-        color: white !important;
-    }
-    
-    /* AI Status Pulse */
-    .ai-status {
-        font-weight: bold;
-        animation: glowPulse 2s infinite ease-in-out;
-    }
-
-    /* Premium Button Hover */
-    .stButton>button {
-        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
-    }
-    .stButton>button:hover {
-        transform: scale(1.05) translateY(-2px) !important;
-        box-shadow: 0 10px 20px rgba(75, 108, 183, 0.4) !important;
-    }
-</style>
-""", unsafe_allow_html=True)
 
 # --------------------------------------------------
-# AUTHENTICATION LOGIC
+# AUTHENTICATION LOGIC (NOW SQL-BASED)
 # --------------------------------------------------
-USER_DB_FILE = "users.json"
-USER_DB_LOCK = threading.Lock() # Fix 1: Concurrency Lock
+def migrate_json_to_sql():
+    """
+    Migration utility: Moves users from users.json to SQL if it exists.
+    Handles both plain text and hashed passwords safely.
+    """
+    JSON_FILE = "users.json"
+    if os.path.exists(JSON_FILE):
+        try:
+            with open(JSON_FILE, "r") as f:
+                users = json.load(f)
+            
+            migrated_count = 0
+            for email, info in users.items():
+                pwd = info["password"]
+                
+                # Check if it looks like a SHA256 hash (64 hex chars)
+                # If not, hash it before storing
+                if len(pwd) != 64 or not all(c in "0123456789abcdefABCDEF" for c in pwd):
+                    pwd = hashlib.sha256(pwd.encode()).hexdigest()
 
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
+                try:
+                    with db._get_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            "INSERT OR IGNORE INTO users (email, password_hash, role) VALUES (?, ?, ?)",
+                            (email, pwd, info["role"])
+                        )
+                        if cursor.rowcount > 0:
+                            migrated_count += 1
+                        conn.commit()
+                except Exception as e:
+                    print(f"Error migrating {email}: {e}")
+            
+            if migrated_count > 0:
+                os.rename(JSON_FILE, JSON_FILE + ".bak")
+                st.toast(f"Successfully migrated {migrated_count} users to SQL Database!", icon="🚀")
+        except Exception as e:
+            st.error(f"Migration error: {e}")
 
-def load_users():
-    if not os.path.exists(USER_DB_FILE):
-        return {}
-    try:
-        with USER_DB_LOCK: # Thread-safe read
-            with open(USER_DB_FILE, "r") as f:
-                return json.load(f)
-    except:
-        return {}
-
-def save_user(email, password, role):
-    with USER_DB_LOCK: # Thread-safe write
-        # Re-read inside lock to prevent overwrite
-        if os.path.exists(USER_DB_FILE):
-             try:
-                 with open(USER_DB_FILE, "r") as f:
-                     users = json.load(f)
-             except:
-                 users = {}
-        else:
-             users = {}
-             
-        users[email] = {
-            "password": hash_password(password),
-            "role": role
-        }
-        with open(USER_DB_FILE, "w") as f:
-            json.dump(users, f)
+# Run migration on startup
+migrate_json_to_sql()
 
 def authenticate(email, password):
-    users = load_users()
-    if email in users and users[email]["password"] == hash_password(password):
+    role = db.authenticate_user(email, password)
+    if role:
+        st.session_state.user_role = role
+        st.session_state.user_email = email
         return True
     return False
+
+def register_user(email, password, role):
+    return db.add_user(email, password, role)
 
 # --------------------------------------------------
 # SESSION STATE INITIALIZATION
@@ -220,60 +97,56 @@ if "uploaded_data" not in st.session_state:
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
+if "user_email" not in st.session_state:
+    st.session_state.user_email = None
+
+if "user_role" not in st.session_state:
+    st.session_state.user_role = None
+
+# --------------------------------------------------
+# DYNAMIC BACKGROUND LOGIC
+# --------------------------------------------------
+# --------------------------------------------------
+# DYNAMIC BACKGROUND LOGIC
+# --------------------------------------------------
+# Using utils.set_background() instead
+utils.set_background()
+
+# --------------------------------------------------
+# NAVIGATION SIDEBAR
+# --------------------------------------------------
+def render_sidebar():
+    """
+    Unified Navigation for Authenticated Users
+    """
+    if st.session_state.authenticated:
+        with st.sidebar:
+            st.title("RetailAI Pro")
+            st.caption(f"Logged in as: {st.session_state.user_email}")
+            st.divider()
+            
+            # Smart Navigation
+            page = st.radio("Navigate", ["Upload Data", "Dashboard", "AI Agent"], 
+                            index=["upload", "dashboard", "chatbot"].index(st.session_state.page) if st.session_state.page in ["upload", "dashboard", "chatbot"] else 1)
+            
+            if page == "Upload Data":
+                st.session_state.page = "upload"
+            elif page == "Dashboard":
+                st.session_state.page = "dashboard"
+            elif page == "AI Agent":
+                st.session_state.page = "chatbot"
+            
+            st.divider()
+            
+            if st.button("Log Out", use_container_width=True):
+                st.session_state.authenticated = False
+                st.session_state.page = "login"
+                st.rerun()
+
 # --------------------------------------------------
 # LOGIN PAGE
 # --------------------------------------------------
-def login_page():
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.title("🔐 RetailAI Login")
-        st.markdown("Enter your credentials to access the AI Agent.")
-        
-        with st.form("login_form"):
-            email = st.text_input("Email")
-            password = st.text_input("Password", type="password")
-            submit = st.form_submit_button("Sign In")
-
-            if submit:
-                if authenticate(email, password):
-                    st.session_state.authenticated = True
-                    st.session_state.page = "upload"
-                    st.success("Login Successful!")
-                    st.rerun()
-                else:
-                    st.error("Invalid email or password.")
-
-        st.markdown("---")
-        if st.button("Create New Account"):
-            st.session_state.page = "signup"
-            st.rerun()
-
-# --------------------------------------------------
-# SIGNUP PAGE
-# --------------------------------------------------
-def signup_page():
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.title("✨ Create Account")
-        
-        with st.form("signup_form"):
-            email = st.text_input("Email Address")
-            password = st.text_input("Password", type="password")
-            role = st.selectbox("Role", ["Owner", "Manager", "Analyst"])
-            submit = st.form_submit_button("Register")
-
-            if submit:
-                if email and password:
-                    save_user(email, password, role)
-                    st.success("Account created! Please login.")
-                    st.session_state.page = "login"
-                    st.rerun()
-                else:
-                    st.error("Please fill all fields.")
-
-        if st.button("Back to Login"):
-            st.session_state.page = "login"
-            st.rerun()
+# Login and Signup pages are now imported from login_page.py
 
 # --------------------------------------------------
 # DATA CLEANING UTILITIES
@@ -308,7 +181,7 @@ def clean_data(df):
 # --------------------------------------------------
 # CACHED ML MODELS
 # --------------------------------------------------
-@st.cache_data(show_spinner="Training AI Models...")
+@st.cache_data(show_spinner="Training AI Models...", ttl=3600)
 def run_forecasting_tournament(data_series):
     """
     Trains models and returns the best forecast.
@@ -363,6 +236,9 @@ def upload_page():
     st.caption("Self-Service Analytics — No Technical Support Needed")
     st.divider()
 
+    # Create a Card Container
+    st.markdown('<div class="stCard">', unsafe_allow_html=True)
+    st.subheader("📤 Import Data")
     st.markdown("""
     **Supported formats:**  
     • CSV  
@@ -372,11 +248,29 @@ def upload_page():
     """)
 
     file = st.file_uploader("Upload Dataset", type=["csv", "xlsx"])
+    st.markdown('</div>', unsafe_allow_html=True)
 
     if file:
         try:
             if file.name.endswith(".csv"):
-                df = pd.read_csv(file)
+                try:
+                    # Attempt 1: Default UTF-8
+                    df = pd.read_csv(file)
+                except UnicodeDecodeError:
+                    try:
+                        # Attempt 2: Common Windows/Excel encoding
+                        file.seek(0)
+                        df = pd.read_csv(file, encoding='cp1252')
+                    except Exception:
+                        # Attempt 3: Comprehensive detection using chardet
+                        import chardet
+                        file.seek(0)
+                        raw_data = file.read(20000)  # Read a larger sample for accuracy
+                        result = chardet.detect(raw_data)
+                        encoding = result['encoding'] or 'latin1'
+                        
+                        file.seek(0)
+                        df = pd.read_csv(file, encoding=encoding)
             else:
                 df = pd.read_excel(file)
 
@@ -385,7 +279,13 @@ def upload_page():
 
             st.success("Dataset sanitized & loaded successfully!")
             
-            # Display preview in a more compact way
+            # Save to Database
+            if st.session_state.user_email:
+                with st.spinner("Saving dataset to cloud storage..."):
+                    db.save_dataset(st.session_state.user_email, file.name, df)
+                st.info(f"💾 Dataset '{file.name}' has been saved to your account.")
+
+            # Display preview
             with st.container():
                 st.markdown("**Dataset Preview (First 5 records):**")
                 st.dataframe(df.head(), use_container_width=True)
@@ -396,8 +296,33 @@ def upload_page():
                 st.session_state.page = "dashboard"
                 st.rerun()
 
-        except Exception:
-            st.error("Error processing the file. Please check format.")
+        except Exception as e:
+            st.error(f"Error processing the file: {str(e)}")
+
+    # Load Previous Datasets UI
+    if st.session_state.user_email:
+        st.divider()
+        st.subheader("📂 Your Saved Datasets")
+        previous_datasets = db.get_datasets(st.session_state.user_email)
+        
+        if previous_datasets:
+            cols = st.columns([3, 1])
+            dataset_options = {f"{name} ({created})": ds_id for ds_id, name, created in previous_datasets}
+            selected_ds_name = cols[0].selectbox("Select a previous dataset", options=list(dataset_options.keys()))
+            
+            if cols[1].button("Load Selected"):
+                selected_id = dataset_options[selected_ds_name]
+                with st.spinner("Retrieving dataset from database..."):
+                    loaded_df = db.load_dataset(selected_id)
+                if loaded_df is not None:
+                    st.session_state.uploaded_data = loaded_df
+                    st.success(f"Loaded {selected_ds_name}!")
+                    st.session_state.page = "dashboard"
+                    st.rerun()
+                else:
+                    st.error("Failed to load dataset.")
+        else:
+            st.info("You haven't saved any datasets yet.")
 
 # --------------------------------------------------
 # HELPER FUNCTIONS FOR VISUALS
@@ -417,24 +342,63 @@ def detect_category_column(df):
 # --------------------------------------------------
 # KPI GENERATION
 # --------------------------------------------------
-def render_kpis(df):
+@st.cache_data(show_spinner=False)
+def calculate_kpis(df):
     sales_col = detect_sales_column(df)
+    kpis = {
+        "total_records": len(df),
+        "total_revenue": df[sales_col].sum() if sales_col else 0,
+        "avg_sale": df[sales_col].mean() if sales_col else 0,
+        "max_sale": df[sales_col].max() if sales_col else 0,
+        "sales_col_name": sales_col
+    }
+    return kpis
 
-    col1, col2, col3 = st.columns(3)
+def render_kpis(df):
+    data = calculate_kpis(df)
+    sales_col = data["sales_col_name"]
+    
+    st.markdown("""
+        <style>
+            [data-testid="stMetric"] {
+                background: #ffffff;
+                border: 1px solid #e5e7eb;
+                padding: 15px;
+                border-radius: 10px;
+                text-align: center;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+                color: #374151;
+            }
+            [data-testid="stMetricLabel"] {
+                color: #6b7280;
+                font-size: 0.9rem;
+            }
+            [data-testid="stMetricValue"] {
+                color: #1f2937;
+                font-weight: 700;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        st.metric("Total Records", len(df))
+        st.metric("📦 Total records", f"{data['total_records']:,}")
 
     if sales_col:
         with col2:
-            st.metric("Total Revenue", f"{df[sales_col].sum():,.2f}")
+            st.metric("💰 Total Revenue", f"${data['total_revenue']:,.2f}")
         with col3:
-            st.metric("Average Sale", f"{df[sales_col].mean():,.2f}")
+            st.metric("📈 Average Sale", f"${data['avg_sale']:,.2f}")
+        with col4:
+            st.metric("🎯 Max Transaction", f"${data['max_sale']:,.2f}")
     else:
         with col2:
-            st.metric("Revenue", "Not detected")
+            st.metric("Revenue", "N/A")
         with col3:
-            st.metric("Avg Sale", "Not detected")
+            st.metric("Avg Sale", "N/A")
+        with col4:
+            st.metric("Max Sale", "N/A")
 
 # --------------------------------------------------
 # VISUAL CHARTS
@@ -446,7 +410,17 @@ def render_sales_trend(df):
     sales_col = detect_sales_column(df)
     if sales_col:
         st.subheader("📈 Sales Trend")
-        st.line_chart(df[sales_col])
+        fig = px.line(df, y=sales_col, title=f"Historical {sales_col} Over Time",
+                     labels={"index": "Timeline (Records)", sales_col: f"Revenue ({sales_col})"},
+                     template="plotly_white")
+        fig.update_traces(line_color='#2c3e50')
+        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+        st.plotly_chart(fig, use_container_width=True)
+        st.info(f"**Presentation Tip:** Explain that this chart shows the **momentum** of your business. The vertical (Y) axis represents your {sales_col}, while the horizontal (X) axis tracks the progression of transactions or time periods.")
+
+@st.cache_data(show_spinner=False)
+def get_aggregated_sales(df, cat_col, sales_col):
+    return df.groupby(cat_col)[sales_col].sum().reset_index().sort_values(by=sales_col, ascending=False)
 
 def render_sales_bar(df):
     sales_col = detect_sales_column(df)
@@ -454,8 +428,14 @@ def render_sales_bar(df):
 
     if sales_col and category_col:
         st.subheader("📊 Sales by Category")
-        grouped = df.groupby(category_col)[sales_col].sum().sort_values(ascending=False)
-        st.bar_chart(grouped)
+        grouped = get_aggregated_sales(df, category_col, sales_col)
+        
+        fig = px.bar(grouped, x=category_col, y=sales_col, 
+                    title=f"Total {sales_col} per Category",
+                    template="plotly_white",
+                    color_discrete_sequence=['#2c3e50'])
+        fig.update_layout(margin=dict(t=30, b=0, l=0, r=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+        st.plotly_chart(fig, use_container_width=True)
 
 def render_sales_pie(df):
     sales_col = detect_sales_column(df)
@@ -463,20 +443,94 @@ def render_sales_pie(df):
 
     if sales_col and category_col:
         st.subheader("🧩 Sales Distribution")
-        pie_data = df.groupby(category_col)[sales_col].sum().reset_index()
+        # Reuse cached aggregation
+        pie_data = get_aggregated_sales(df, category_col, sales_col)
 
-        st.plotly_chart(
-            {
-                "data": [{
-                    "labels": pie_data[category_col],
-                    "values": pie_data[sales_col],
-                    "type": "pie",
-                    "hole": 0.4
-                }],
-                "layout": {"title": "Sales Share by Category"}
-            },
-            use_container_width=True
-        )
+        fig = px.pie(pie_data, names=category_col, values=sales_col, 
+                    title="Revenue Share",
+                    hole=0.4,
+                    template="plotly_white",
+                    color_discrete_sequence=px.colors.qualitative.Safe)
+        fig.update_layout(margin=dict(t=30, b=0, l=0, r=0), paper_bgcolor='rgba(0,0,0,0)')
+        st.plotly_chart(fig, use_container_width=True)
+
+def render_product_treemap(df):
+    sales_col = detect_sales_column(df)
+    category_col = detect_category_column(df)
+    
+    sub_cat_col = None
+    for col in df.columns:
+        if col.lower() in ["sub-category", "product_name", "item_name", "product"]:
+            if col != category_col:
+                sub_cat_col = col
+                break
+    
+    if sales_col and category_col:
+        st.subheader("🌳 Product Hierarchy")
+        path = [category_col]
+        if sub_cat_col:
+            path.append(sub_cat_col)
+            
+        fig = px.treemap(df, path=path, values=sales_col,
+                        template="plotly_white",
+                        color_continuous_scale='Blues')
+        fig.update_layout(margin=dict(t=30, b=0, l=0, r=0), paper_bgcolor='rgba(0,0,0,0)')
+        st.plotly_chart(fig, use_container_width=True)
+
+def render_profit_heatmap(df):
+    sales_col = detect_sales_column(df)
+    category_col = detect_category_column(df)
+    
+    if sales_col and category_col:
+        st.subheader("🔥 Performance Heatmap")
+        dim2 = None
+        for col in df.columns:
+            if col.lower() in ["region", "state", "city", "segment"]:
+                if col != category_col:
+                    dim2 = col
+                    break
+        
+        if dim2:
+            pivot_df = df.groupby([category_col, dim2])[sales_col].sum().unstack().fillna(0)
+            fig = px.imshow(pivot_df, 
+                            title=f"{category_col} vs {dim2}",
+                            template="plotly_white",
+                            color_continuous_scale="Blues")
+            fig.update_layout(paper_bgcolor='rgba(0,0,0,0)')
+            st.plotly_chart(fig, use_container_width=True)
+
+def render_kpi_gauges(df):
+    sales_col = detect_sales_column(df)
+    if sales_col:
+        st.subheader("🎯 Performance Gauges")
+        total_sales = df[sales_col].sum()
+        avg_sales = df[sales_col].mean()
+        max_sales = df[sales_col].max()
+        
+        import plotly.graph_objects as go
+        
+        fig1 = go.Figure(go.Indicator(
+            mode = "gauge+number",
+            value = avg_sales,
+            title = {'text': "Avg Transaction", 'font': {'size': 18}},
+            gauge = {'axis': {'range': [0, max_sales], 'tickcolor': "#2c3e50"},
+                    'bar': {'color': "#2c3e50"},
+                    'bgcolor': "white",
+                    'borderwidth': 1,
+                    'bordercolor': "#e0e0e0",
+                    'steps' : [
+                        {'range': [0, avg_sales * 0.8], 'color': "#f8d7da"},
+                        {'range': [avg_sales * 0.8, avg_sales * 1.2], 'color': "#fff3cd"}]}))
+        fig1.update_layout(template="plotly_white", height=250, margin=dict(t=50, b=20, l=30, r=30), paper_bgcolor='rgba(0,0,0,0)')
+        st.plotly_chart(fig1, use_container_width=True)
+            
+        fig2 = go.Figure(go.Indicator(
+            mode = "number+delta",
+            value = total_sales,
+            delta = {'reference': total_sales * 0.9, 'relative': True},
+            title = {'text': "Current Revenue vs Target", 'font': {'size': 18}}))
+        fig2.update_layout(template="plotly_white", height=220, margin=dict(t=50, b=20, l=30, r=30), paper_bgcolor='rgba(0,0,0,0)')
+        st.plotly_chart(fig2, use_container_width=True)
 
 # --------------------------------------------------
 # V2.0 FEATURES: FORECAST & BRIEF
@@ -508,17 +562,23 @@ def render_forecast(df):
                                      mode='lines', name=f'Forecast ({winner_name})', 
                                      line=dict(color='orange', dash='dash')))
             
-            fig.update_layout(title=f"Sales Prediction (Best Model: {winner_name})", xaxis_title="Time", yaxis_title="Sales")
+            fig.update_layout(title=f"Sales Prediction (Best Model: {winner_name})", 
+                              xaxis_title="Time Steps (Future 30 Days)", 
+                              yaxis_title=f"Predicted {sales_col}",
+                              template="plotly_white",
+                              paper_bgcolor='rgba(0,0,0,0)',
+                              plot_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig, use_container_width=True)
             
             st.success(f"✅ **Auto-Selected Best Model**: {winner_name} (Lowest Error)")
+            st.info("**Presentation Tip:** This is the **Forward-Looking** part of the AI. Historical data handles the past, but this model predicts the next 30 steps. Explain that 'Random Forest' or 'Linear Regression' was chosen automatically based on which one fit your specific data best.")
             
-            # SHOW DETAILS IF NEEDED
+            # V2.1: Restored Accuracy Details
             with st.expander("🔎 View Model Comparison (Accuracy Details)"):
                 st.write("We tested 3 algorithms using a 80/20 train-test split.")
                 models_for_display = [{"name": r["name"], "rmse": r["rmse"]} for r in all_results]
                 res_df = pd.DataFrame(models_for_display).sort_values("rmse")
-                st.dataframe(res_df.style.format({"rmse": "{:.2f}"}))
+                st.dataframe(res_df.style.format({"rmse": "{:.2f}"}), use_container_width=True)
         else:
             st.warning("Not enough data to run Auto-ML (Need 10+ records).")
 
@@ -555,13 +615,13 @@ def generate_executive_brief(df):
 # --------------------------------------------------
 # Redundant imports removed (now at top of file)
 
-def execute_python_code(code, df):
+def execute_python_code(code, df, global_context=None):
     """
     Executes Python code generated by the agent on the dataframe.
     Returns the local variables 'result' or captured stdout.
     """
     # Fix 3: Security Sanity Check
-    forbidden_keywords = ["import os", "import subprocess", "import sys", "open(", "remove(", "rmdir("]
+    forbidden_keywords = ["import os", "import subprocess", "import sys", "remove(", "rmdir("]
     for keyword in forbidden_keywords:
         if keyword in code:
             return "⚠️ Security Alert: The generated code contains forbidden commands and was blocked."
@@ -575,11 +635,20 @@ def execute_python_code(code, df):
     
     # Enhance Agent Toolbox with ML Libraries
     import numpy as np
+    import pandas as pd
     from sklearn.linear_model import LinearRegression
     from sklearn.cluster import KMeans
     
-    local_vars = {
+    # Use provided context or initialize new
+    if global_context is None:
+        local_vars = {}
+    else:
+        local_vars = global_context
+        
+    # Inject standard variables if not present
+    default_vars = {
         "df": df, 
+        "pd": pd,
         "plt": plt, 
         "px": px, 
         "st": st,
@@ -588,86 +657,108 @@ def execute_python_code(code, df):
         "KMeans": KMeans
     }
     
+    # Update only if not already set (preserve state)
+    for k, v in default_vars.items():
+        if k not in local_vars:
+            local_vars[k] = v
+    
     try:
-        # We wrap in a try-except to catch execution errors
-        exec(code, {}, local_vars)
-        output = buffer.getvalue()
-        
+        # Pass local_vars as both globals and locals for consistency in exec
+        exec(code, local_vars, local_vars)
+        output = buffer.getvalue().strip()
         result = local_vars.get("result", None)
-        return output if output else str(result)
+        
+        # Combine stdout and result variable
+        final_bits = []
+        if output:
+            final_bits.append(output)
+        if result is not None and str(result) not in output:
+            final_bits.append(str(result))
+            
+        return "\n".join(final_bits) if final_bits else None
         
     except Exception as e:
         return f"Error executing code: {str(e)}"
     finally:
         sys.stdout = old_stdout
 
-@st.cache_data(show_spinner=False)
-def query_gemini(prompt, df, api_key):
-    import time
-    
+@st.cache_resource(show_spinner=False)
+def get_openai_client(api_key):
+    return OpenAI(api_key=api_key)
+
+def query_openai_stream(prompt, df, api_key, model="gpt-5-nano"):
     if not api_key:
-        return "Please provide a valid Google Gemini API Key in the sidebar."
+        yield "Please provide a valid OpenAI API Key in the sidebar."
+        return
         
     try:
-        genai.configure(api_key=api_key)
-        # Switch to 2.0-flash for stability
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        client = get_openai_client(api_key)
         
-        # Construct the context
-        columns = ", ".join(df.columns)
-        
-        # Optimize: Reduce token usage by truncating sample data if it's too large
-        sample_data = df.head(3).to_string() 
+        # Enhanced Context (Cached)
+        context = utils.get_ai_context(df)
         
         system_instruction = f"""
-        You are RetailAI, a friendly and intelligent Data Analyst Assistant.
-        
-        **Your Personality:**
-        - You are helpful, polite, and professional.
-        - You can engage in **casual conversation** (e.g., greetings, asking "how can I help?").
-        - You are an expert at **explaining concepts** (e.g., "What is ROI?", "Explain regression").
-        
-        **Your Data Access:**
-        - You have access to a pandas DataFrame named 'df'.
-        - Columns: {columns}
-        - Sample Data:
-        {sample_data}
-        
-        **Instructions for Handling Queries:**
-        1. **General Chat**: If the user says "Hi", "Thanks", or asks a conceptual question, reply naturally in text. DO NOT write code.
-        2. **Data Analysis**: If the user asks for insights, trends, or plots involving the data, **WRITE PYTHON CODE**.
-        3. **Code Format**: Wrap python code in ```python ... ``` blocks.
-        4. **Plotting**: Use `plotly.express` as `px`. Use `st.plotly_chart(fig)`.
-        
-        **Goal**: Be a versatile assistant. Chat when needed, code when needed.
+        You are 'RetailAI Pro', a versatile AI Assistant powered by OpenAI. 
+        You function as a world-class Business Strategy Consultant and Data Scientist, but you are also capable of answering ANY general question (like ChatGPT).
+
+        **CRITICAL: DATA ACCESS CONFIRMED**
+        - You HAVE access to the full dataframe in the variable `df`.
+        - The `df` is LOADED in memory.
+        - You CAN execute Python code to analyze it.
+        - **NEVER** say "I don't have access to the full data".
+        - **ALWAYS** write Python code to answer data questions.
+
+        **Your Mission:**
+        1. **General Assistance**: Answer any question helpfully—from general knowledge to logical reasoning.
+        2. **Data Intelligence**: When the query relates to the provided business data (columns: {context['columns']}), perform high-precision analysis.
+
+        **Protocol for Data Queries:**
+        If the user asks about the dataframe 'df':
+        - **Format:** Keep your text response extremely brief (e.g., "Calculating...").
+        - **Analysis:** Write Python code inside ```python ... ``` blocks to calculate the answer.
+        - **Output:** You MUST use `print()` to display the final answer in the code block.
+        - **Restrictions:**
+            - DO NOT explain the code.
+            - DO NOT tell the user to run the code.
+            - DO NOT say "Data-Driven Conclusion".
+            - Just let the code result be the answer.
+
+        **Protocol for General Queries:**
+        If the user asks a general question (e.g., "Who is the Prime Minister of India?"), answer directly and conversationally. DO NOT follow the data protocol or write code for non-data questions.
+
+        **Data Context (for reference):**
+        - Rows: {context['num_rows']} | Columns: {context['columns']}
+        - Sample Data: {context['sample_data']}
         """
         
-        # Retry logic for 429 Errors
-        max_retries = 3
-        retry_delay = 10 # START WITH 10 SECONDS
+        # Compatibility Adjustments for newer models (o1, gpt-5)
+        completion_args = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": prompt}
+            ],
+            "stream": True
+        }
+
+        # Newer models (o1/gpt-5) sometimes prefer 'user' over 'system' for initial instructions
+        # or require 'max_completion_tokens' instead of 'max_tokens'
+        if "o1" in model or "gpt-5" in model:
+            # For o1-preview/o1-mini, early versions didn't support system messages
+            # Converting system instruction to a user message for reliability
+            completion_args["messages"] = [
+                {"role": "user", "content": f"SYSTEM INSTRUCTION:\n{system_instruction}\n\nUSER QUERY:\n{prompt}"}
+            ]
+            # completion_args["max_completion_tokens"] = 10000 # Default safe ceiling
+
+        response = client.chat.completions.create(**completion_args)
         
-        for attempt in range(max_retries):
-            try:
-                response = model.generate_content(system_instruction)
-                return response.text
-            except Exception as e:
-                error_msg = str(e)
-                if "429" in error_msg and attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-                    retry_delay += 10 # Add 10 more seconds each time
-                    continue
-                elif "429" in error_msg:
-                    return "⚠️ **Quota Exceeded**: The rate limit was hit even after waiting. Please wait 2-3 minutes."
-                else:
-                    raise e
+        for chunk in response:
+            if chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
                     
     except Exception as e:
-        error_msg = str(e)
-        if "429" in error_msg:
-             return "⚠️ **Quota Exceeded**: Your API Key has hit the free tier rate limit. Please wait a minute and try again."
-        elif "404" in error_msg:
-             return f"⚠️ **Model Error**: The selected model is not found. Error: {error_msg}"
-        return f"API Error: {error_msg}"
+        raise e
 
 def process_agent_response(response_text, df):
     """
@@ -675,21 +766,25 @@ def process_agent_response(response_text, df):
     and returns a combined response.
     """
     import re
-    # 1. Regex to find python code blocks
-    code_blocks = re.findall(r"```python(.*?)```", response_text, re.DOTALL)
+    # 1. Regex to find python code blocks (flexible on spacing/newlines)
+    code_blocks = re.findall(r"```(?:python)?\s*(.*?)```", response_text, re.DOTALL)
 
     # 2. Create the Cleaned Display Output
-    # We remove the ```python ... ``` blocks so the user doesn't see raw code
-    clean_text = re.sub(r"```python(.*?)```", "", response_text, flags=re.DOTALL)
+    # We remove the code blocks so the user doesn't see raw code
+    clean_text = re.sub(r"```(?:python)?\s*(.*?)```", "", response_text, flags=re.DOTALL)
     
     execution_results = []
+    
+    # Create a shared execution context for multi-block dependencies
+    execution_context = {}
     
     if code_blocks:
         st.info("System: Executing Analysis Model...")
         
         for code in code_blocks:
             code = code.strip()
-            res = execute_python_code(code, df)
+            # Pass and update the shared context
+            res = execute_python_code(code, df, global_context=execution_context)
             execution_results.append(res)
             
             # Optional: Add technical details in an expander
@@ -700,95 +795,9 @@ def process_agent_response(response_text, df):
         if execution_results:
             results_str = "\n".join([str(r) for r in execution_results if r and r != "None"])
             if results_str:
-                clean_text += f"\n\n**Analysis Result:**\n{results_str}"
+                clean_text += f"\n\n{results_str}"
             
     return clean_text.strip()
-
-# --------------------------------------------------
-# CHATBOT UI
-# --------------------------------------------------
-# --------------------------------------------------
-# DEMO MODE (FALLBACK)
-# --------------------------------------------------
-def demo_agent(prompt, df):
-    """
-    Simulated Agent that generates working code for common demo queries.
-    Used when API Key is missing or quota is exceeded.
-    """
-    prompt = prompt.lower()
-    
-    # 1. Sales Trend
-    if "trend" in prompt or "line" in prompt:
-        col = detect_sales_column(df)
-        if col:
-            return f"""```python
-import plotly.express as px
-fig = px.line(df, y='{col}', title='Sales Trend (Demo Mode)')
-st.plotly_chart(fig)
-result = "Here is the sales trend over time."
-```"""
-
-    # 2. Bar Chart / Category
-    if "bar" in prompt or "category" in prompt:
-        cat = detect_category_column(df)
-        val = detect_sales_column(df)
-        if cat and val:
-            return f"""```python
-import plotly.express as px
-grouped = df.groupby('{cat}')['{val}'].sum().reset_index()
-fig = px.bar(grouped, x='{cat}', y='{val}', title='Sales by Category (Demo Mode)')
-st.plotly_chart(fig)
-result = "Here is the breakdown by category."
-```"""
-
-    # 3. Pie Chart
-    if "pie" in prompt or "distribution" in prompt:
-        cat = detect_category_column(df)
-        val = detect_sales_column(df)
-        if cat and val:
-            return f"""```python
-import plotly.express as px
-fig = px.pie(df, values='{val}', names='{cat}', title='Distribution (Demo Mode)')
-st.plotly_chart(fig)
-result = "Here is the distribution view."
-```"""
-
-    # 4. Advanced: Prediction / Future (ML Demo)
-    if "predict" in prompt or "future" in prompt or "forecast" in prompt:
-        col = detect_sales_column(df)
-        if col:
-             return f"""```python
-import numpy as np
-import plotly.graph_objects as go
-from sklearn.linear_model import LinearRegression
-
-# Prepare Data
-y = df['{col}'].fillna(0).values.reshape(-1, 1)
-x = np.arange(len(y)).reshape(-1, 1)
-
-# Train ML Model
-model = LinearRegression()
-model.fit(x, y)
-
-# Predict Future (Next 6 Months/Points)
-future_x = np.arange(len(y), len(y) + 6).reshape(-1, 1)
-future_pred = model.predict(future_x)
-
-# Visualize
-fig = go.Figure()
-fig.add_trace(go.Scatter(x=x.flatten(), y=y.flatten(), mode='lines+markers', name='Actual Data'))
-fig.add_trace(go.Scatter(x=np.arange(len(y), len(y)+6), y=future_pred.flatten(), mode='lines+markers', name='AI Prediction', line=dict(dash='dot', color='red')))
-fig.update_layout(title="🤖 AI-Generated Sales Prediction (Next 6 Periods)")
-st.plotly_chart(fig)
-
-result = "I have trained a Linear Regression model to predict the next 6 periods."
-```"""
-
-    # 5. Summary / General
-    return f"""```python
-st.write(df.describe())
-result = "Here is the statistical summary of your dataset."
-```"""
 
 # --------------------------------------------------
 # CHATBOT UI
@@ -797,41 +806,61 @@ def chatbot_ui():
     st.markdown("### 🤖 Agentic AI Assistant")
     
     # Check secrets for API Key
-    if "GEMINI_API_KEY" in st.secrets:
-        st.session_state.gemini_api_key = st.secrets["GEMINI_API_KEY"]
+    if "OPENAI_API_KEY" in st.secrets:
+        st.session_state.openai_api_key = st.secrets["OPENAI_API_KEY"]
         
     # API Key Input
     with st.sidebar:
         st.header("🔑 Configuration")
         
-        if st.session_state.get("gemini_api_key"):
-             st.success("API Key Active ✅")
-             st.caption("Mode: ⚡ Real AI")
+        if st.session_state.get("openai_api_key"):
+            st.success("API Key Active ✅")
+            st.caption("Mode: ⚡ OpenAI AI")
              
-             # Re-added for User Convenience
-             with st.expander("🔄 Change API Key"):
-                 new_key = st.text_input("New Gemini Key", type="password", key="new_key_input")
-                 if st.button("Update Key"):
-                     st.session_state.gemini_api_key = new_key
-                     st.rerun()
+            # Model Selector
+            st.divider()
+            st.caption("🤖 Model Selection")
+            available_models = ["gpt-5-nano", "gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"]
+            selected_model = st.selectbox("Choose AI Model", available_models, index=0)
+            st.session_state.active_model = selected_model
+            
+            # Re-added for User Convenience
+            with st.expander("🔄 Change API Key"):
+                new_key = st.text_input("New OpenAI Key", type="password", key="new_key_input")
+                if st.button("Update Key"):
+                    st.session_state.openai_api_key = new_key
+                    st.rerun()
+
+            st.info(f"⚡ Powered by: **{selected_model.upper()}**")
         else:
-             st.warning("No API Key Found")
-             st.caption("Mode: 🟢 Demo Simulation")
-             api_key = st.text_input("Enter Gemini Key", type="password")
-             if api_key:
-                 st.session_state.gemini_api_key = api_key
-                 st.rerun()
+            st.warning("No API Key Found")
+            api_key = st.text_input("Enter OpenAI Key", type="password")
+            if api_key:
+                st.session_state.openai_api_key = api_key
+                st.rerun()
         
         st.divider()
+        st.subheader("🧹 Maintenance")
+        if st.button("Clear System Cache"):
+            st.cache_data.clear()
+            st.success("System cache cleared!")
+            st.rerun()
+
         if st.button("🗑️ Clear Chat History"):
             st.session_state.chat_history = []
+            if st.session_state.user_email:
+                db.save_chat_history(st.session_state.user_email, "default", [])
             st.rerun()
+
+    # Load History from DB on first run in dashboard
+    if st.session_state.user_email and not st.session_state.chat_history:
+        st.session_state.chat_history = db.load_chat_history(st.session_state.user_email, "default")
 
     # Display History
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-        st.divider() # Visual separator between messages
+        st.divider() 
 
     # User Input
     user_input = st.chat_input("Ask about your data...")
@@ -842,103 +871,161 @@ def chatbot_ui():
             st.markdown(user_input)
             
         with st.chat_message("assistant"):
+            # UI: Immediate Response (Performance Optimized)
             message_placeholder = st.empty()
-            message_placeholder.markdown("🧠 Thinking...")
-            
+            full_response = ""
             
             try:
-                # TRY REAL AI FIRST
-                if st.session_state.get("gemini_api_key"):
-                    raw_response = query_gemini(user_input, st.session_state.uploaded_data, st.session_state.gemini_api_key)
-                    if "Quota Exceeded" in raw_response:
-                        raise Exception("Quota Hit")
+                # API Key Check
+                if st.session_state.get("openai_api_key"):
+                    # Use selected model or default to gpt-5-nano
+                    active_model = st.session_state.get("active_model", "gpt-5-nano")
+                    
+                    # Use the restored OpenAI streaming function
+                    stream = query_openai_stream(
+                        user_input, 
+                        st.session_state.uploaded_data, 
+                        st.session_state.openai_api_key,
+                        model=active_model
+                    )
+                    
+                    buffer_counter = 0
+                    for chunk in stream:
+                        full_response += chunk
+                        buffer_counter += 1
+                        # Update UI every 5 chunks to prevent lag
+                        if buffer_counter % 5 == 0:
+                            message_placeholder.markdown(full_response + "▌")
+                    
+                    # Final update to ensure everything is shown
+                    message_placeholder.markdown(full_response)
                 else:
-                    raise Exception("No Key")
-            except:
-                # FALLBACK TO DEMO MODE
-                raw_response = demo_agent(user_input, st.session_state.uploaded_data)
-                # st.toast("⚠️ Utilizing Demo Agent (Simulation Mode)", icon="🟢") # Silenced for Demo Video
+                    st.error("⚠️ OpenAI API Key is required to use the AI Copilot.")
+                    st.info("Please enter your API key in the sidebar configuration.")
+                    return # Stop further processing if no key
+            except Exception as e:
+                error_msg = str(e).lower()
+                
+                # Enhanced error diagnostics for GPT-5 / newer models
+                if "429" in error_msg:
+                    st.error("🚀 **API Quota Reached**")
+                    st.warning(f"Your OpenAI account has reached its limit for **{active_model}**.")
+                    st.info("💡 **Why is this happening?** \nGPT-5 is a premium model and often requires 'Tier 4' billing status and enough pre-paid credits. Your account is currently blocking this request.")
+                    
+                    if active_model == "gpt-5-nano":
+                        st.divider()
+                        st.subheader("🛠️ Emergency Solution")
+                        st.write("If you need to chat right now, you can switch to a more available model:")
+                        if st.button("🔄 Emergency Switch to gpt-4o-mini"):
+                            st.session_state.emergency_fallback_model = "gpt-4o-mini"
+                            st.success("Fallback active! Please try your question again.")
+                            st.rerun()
+                    else:
+                        st.info("💡 **What to do?** \n1. Wait a moment and try again. \n2. Check your [OpenAI Usage Dashboard](https://platform.openai.com/usage). \n3. Ensure your API key has credits.")
+                elif "404" in error_msg or "model_not_found" in error_msg:
+                    st.error(f"❌ **Model Access Denied: {active_model}**")
+                    st.warning(f"Your API key does not appear to have access to the model: `{active_model}`.")
+                    st.info("💡 **Note:** GPT-5 models are often rolled out in tiers. Please ensure your account has 'Tier 4' or higher access in the OpenAI Dashboard.")
+                elif "503" in error_msg:
+                    st.error("🚧 **OpenAI Model is Busy**")
+                    st.warning("The selected model is currently experiencing high load.")
+                    st.info("Please try again in a few seconds or switch to a faster model like `gpt-4o-mini`.")
+                else:
+                    st.error(f"⚠️ OpenAI Connection Issue: {str(e)}")
+                    st.info(f"Technical Reason: {error_msg}")
+                    st.info("Please check your API key / model selection or network connection.")
+                return
             
-            # Process Code Blocks (Execution happens instantly)
-            final_response = process_agent_response(raw_response, st.session_state.uploaded_data)
+            # Post-Process: Execute Code Blocks (instantly)
+            final_display = process_agent_response(full_response, st.session_state.uploaded_data)
             
-            # STREAMING EFFECT (Simulated for UX)
-            def stream_data():
-                import time
-                for word in final_response.split(" "):
-                    yield word + " "
-                    time.sleep(0.02)
-            
-            # Use st.write_stream if available (Streamlit 1.31+), else markdown
-            if hasattr(st, "write_stream"):
-                st.write_stream(stream_data)
-            else:
-                st.markdown(final_response)
-            
-        st.session_state.chat_history.append({"role": "assistant", "content": final_response})
+            # If the cleaner removed code blocks, we update the message
+            if final_display != full_response:
+                message_placeholder.markdown(final_display)
+
+        st.session_state.chat_history.append({"role": "assistant", "content": final_display})
+        
+        # Save to Database
+        if st.session_state.user_email:
+            db.save_chat_history(st.session_state.user_email, "default", st.session_state.chat_history)
 
 # --------------------------------------------------
 # DASHBOARD PAGE
 # --------------------------------------------------
 def dashboard_page():
-    st.title("RetailAI Decision Dashboard")
+    if st.session_state.uploaded_data is None:
+        st.warning("Please upload a dataset first.")
+        st.session_state.page = "upload"
+        st.rerun()
 
-    dashboard_panel, chat_panel = st.columns([2.5, 1], gap="medium")
+    df = st.session_state.uploaded_data
     
-    with dashboard_panel:
-        # V2.0: Executive Brief
-        st.subheader("📋 Executive Brief")
-        brief = generate_executive_brief(st.session_state.uploaded_data)
-        for b in brief:
-            st.markdown(f"- {b}")
-        st.divider()
+    # Dashboard Header: Clean, Minimalist
+    st.title("Command Center")
+    st.markdown(f"<p style='color: #666; font-size: 0.9rem;'>{st.session_state.user_role} access | {st.session_state.user_email}</p>", unsafe_allow_html=True)
+    
+    st.divider()
 
-        render_kpis(st.session_state.uploaded_data)
-        
-        # Charts Area
-        tab1, tab2, tab3 = st.tabs(["📊 Charts", "🔮 Forecast", "🔢 Data"])
-        
-        with tab1:
-            render_sales_trend(st.session_state.uploaded_data)
-            render_sales_bar(st.session_state.uploaded_data)
-            render_sales_pie(st.session_state.uploaded_data)
-            
-        with tab2:
-            render_forecast(st.session_state.uploaded_data)
-            
-        with tab3:
-            st.subheader("Dataset Preview")
-            st.dataframe(st.session_state.uploaded_data.head(10))
-
-    with chat_panel:
-        st.subheader("🤖 AI Copilot")
-        st.markdown('<p class="ai-status">🟢 Active Intelligence</p>', unsafe_allow_html=True)
-        chatbot_ui()
-
+    # Layout Split: Full Width Dashboard
+    
+    render_kpis(df)
     st.divider()
     
-    # Bottom Sidebar Actions
-    with st.sidebar:
-        st.subheader("🛠️ Quick Actions")
-        if st.button("🔄 Change Dataset", use_container_width=True):
-            st.session_state.page = "upload"
-            st.rerun()
+    tab_bi, tab_ai, tab_raw = st.tabs(["Market Dynamics", "AI Intelligence", "Data Registry"])
+    
+    with tab_bi:
+        # Row 1: Sales Trend (Full Width)
+        render_sales_trend(df)
+        
+        st.divider()
+
+        # Row 2
+        col3, col4 = st.columns(2)
+        with col3:
+            render_sales_bar(df)
+        with col4:
+            render_sales_pie(df)
             
-        if st.button("🚪 Logout", use_container_width=True):
-            st.session_state.authenticated = False
-            st.session_state.page = "login"
-            st.session_state.uploaded_data = None
-            st.session_state.chat_history = []
-            st.rerun()
+        # Row 3
+        col5, col6 = st.columns(2)
+        with col5:
+            render_product_treemap(df)
+        with col6:
+            render_profit_heatmap(df)
+
+        st.divider()
+        
+        # Row 4: Performance Gauges (Moved to Bottom)
+        render_kpi_gauges(df)
+
+    with tab_ai:
+        render_forecast(df)
+        st.divider()
+        st.subheader("Strategy Brief")
+        brief = generate_executive_brief(df)
+        for b in brief:
+            st.write(f"• {b}")
+
+    with tab_raw:
+        st.subheader("Data Explorer")
+        st.dataframe(df, use_container_width=True)
+
+    # Footer
+    st.markdown("<br><hr><div style='text-align: center; color: #999; font-size: 0.8rem;'>RetailAI v2.5 Enterprise — Restricted Access Control</div>", unsafe_allow_html=True)
 
 # --------------------------------------------------
 # ROUTER
 # --------------------------------------------------
+render_sidebar()
+
 if st.session_state.page == "login":
-    login_page()
+    lp.login_page()
 elif st.session_state.page == "signup":
-    signup_page()
+    lp.signup_page()
 elif st.session_state.page == "upload":
     upload_page()
 elif st.session_state.page == "dashboard":
     dashboard_page()
+elif st.session_state.page == "chatbot":
+    st.title("AI Intelligence Agent")
+    chatbot_ui()
